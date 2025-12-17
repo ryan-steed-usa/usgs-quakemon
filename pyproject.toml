@@ -11,7 +11,7 @@ maintainers = [
 description = "Monitor USGS earthquake feeds with Python 3 from a CLI terminal."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "GPL-3.0-only"
 keywords = ["earthquake", "monitor", "usgs", "feed", "terminal", "cli"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -23,7 +23,6 @@ classifiers = [
   "Topic :: Scientific/Engineering",
   "Topic :: Terminals",
   "Topic :: Utilities",
-  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
