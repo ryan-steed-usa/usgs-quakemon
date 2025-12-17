@@ -30,7 +30,7 @@ from tabulate import tabulate
 tabulate.WIDE_CHARS_MODE = False
 
 # constants
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 DESCRIPTION = """
 Monitor recent earthquakes reported by USGS at https://earthquake.usgs.gov.
 If no arguments are specified, the significant earthquakes for the day (--day)
@@ -89,7 +89,7 @@ class QwState:
     geolink: bool = False
     magalert: float = 666.666
     localtime: bool = True
-    refresh: int = 60
+    refresh: int = 300
     runonce: bool = False
     timeout: int = 10
     timeformat: str = DEFAULT_TIME_FORMAT
@@ -276,9 +276,9 @@ def init_args(parser):
     parser.add_argument(
         "-r",
         "--refresh",
-        help=f'set the API request refresh rate in optional time\
+        help='set the API request refresh rate in optional time\
             unit, omitted unit presumes "s" (seconds); minimum 60s, maximum 24h (default:\
-            {QwState.refresh}s)',
+            5m)',
         type=str,
     )
     parser.add_argument(
