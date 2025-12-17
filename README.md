@@ -7,18 +7,55 @@ Monitor **[USGS](https://earthquake.usgs.gov/)** **[GeoJSON](https://earthquake.
 * **256 color** terminal capability for color output
 * Network access to https://earthquake.usgs.gov
 
-## Installation
-[pipx](https://github.com/pypa/pipx) is recommended as it enables a virtual environment and adds `usgs-quakemon` to the user's path.
+## Installation & Update
+[pipx](https://github.com/pypa/pipx) install from the [PyPi package](https://pypi.org/project/usgs-quakemon) is recommended; pipx uses a virtual environment and optionally adds `usgs-quakemon` to the user's path.
 
-```bash
-# Remote GitHub + pipx
-pipx install 'git+https://github.com/ryan-steed-usa/usgs-quakemon'
-usgs-quakemon --help
-
-# Clone repository + pipx
-git clone https://github.com/ryan-steed-usa/usgs-quakemon
+```shell
+# Recommended PyPi pipx installation #
 pipx install usgs-quakemon
+pipx ensurepath
+source ~/.bashrc
 usgs-quakemon --help
+
+# Recommended PyPi pipx update
+pipx upgrade usgs-quakemon
+
+
+# Remote GitHub + pipx installation #
+pipx install 'git+https://github.com/ryan-steed-usa/usgs-quakemon'
+pipx ensurepath
+source ~/.bashrc
+usgs-quakemon --help
+
+# Remote GitHub + pipx update
+pipx upgrade usgs-quakemon
+```
+
+<details>
+<summary>
+Additional installation options
+</summary>
+
+```shell
+# PyPi uvx installation
+uvx usgs-quakemon
+
+# PyPi uvx update
+uvx usgs-quakemon@latest
+
+
+# Clone repository + pipx installation #
+git clone https://github.com/ryan-steed-usa/usgs-quakemon
+pipx install ./usgs-quakemon
+pipx ensurepath
+source ~/.bashrc
+usgs-quakemon --help
+
+# Clone repository + pipx update
+cd ./usgs-quakemon
+git pull
+pipx upgrade usgs-quakemon
+
 
 # Clone + direct execution
 git clone https://github.com/ryan-steed-usa/usgs-quakemon
@@ -26,6 +63,8 @@ cd usgs-quakemon
 python3 -m pip install -r requirements.txt
 python3 usgs-quakemon --help
 ```
+
+</details>
 
 ## Usage
 ```
