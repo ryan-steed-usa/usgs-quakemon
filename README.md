@@ -12,9 +12,8 @@ Monitor **[USGS](https://earthquake.usgs.gov/)** **[GeoJSON](https://earthquake.
 
 ```shell
 # Recommended PyPi pipx installation #
+# presumes "pipx ensurepath" setup   #
 pipx install usgs-quakemon
-pipx ensurepath
-source ~/.bashrc
 usgs-quakemon --help
 
 # Recommended PyPi pipx update
@@ -23,8 +22,6 @@ pipx upgrade usgs-quakemon
 
 # Remote GitHub + pipx installation #
 pipx install 'git+https://github.com/ryan-steed-usa/usgs-quakemon'
-pipx ensurepath
-source ~/.bashrc
 usgs-quakemon --help
 
 # Remote GitHub + pipx update
@@ -47,8 +44,6 @@ uvx usgs-quakemon@latest
 # Clone repository + pipx installation #
 git clone https://github.com/ryan-steed-usa/usgs-quakemon
 pipx install ./usgs-quakemon
-pipx ensurepath
-source ~/.bashrc
 usgs-quakemon --help
 
 # Clone repository + pipx update
@@ -91,8 +86,8 @@ Full usage
 </summary>
 
 ```
-usage: usgs-quakemon [-h] [-a ALARM] [-p PAGER [PAGER ...]] [-m MAGNITUDE] [-f] [-g] [-l] [-r REFRESH] [-ro] [-t TIMEOUT] [--time-format TIME_FORMAT] [--color | --no-color] [--version] [--accept-warning] [-h45 | -h25 | -h10 | -hs | -ha |
-                     -d45 | -d25 | -d10 | -ds | -da | -w45 | -w25 | -w10 | -ws | -wa | -m45 | -m25 | -m10 | -ms | -ma]
+usage: usgs-quakemon [-h] [-a ALARM] [-f] [-g] [-m MAGNITUDE] [-l] [-p PAGER [PAGER ...]] [-n] [-s] [-r REFRESH] [-ro] [-t TIME_FORMAT] [--color | --no-color] [--api-timeout API_TIMEOUT] [--accept-warning] [--version] [-h45 | -h25 | -h10 |
+                     -hs | -ha | -d45 | -d25 | -d10 | -ds | -da | -w45 | -w25 | -w10 | -ws | -wa | -m45 | -m25 | -m10 | -ms | -ma]
 
 Monitor recent earthquakes reported by USGS at https://earthquake.usgs.gov.
 If no arguments are specified, the significant earthquakes for the day (--day)
@@ -115,43 +110,46 @@ national (orange), or international (red).
 options:
   -h, --help            show this help message and exit
   -a, --alarm ALARM     set a custom alarm command, this disables the terminal bell alarm, for example using the sox utility: "play -q ~/Audio/quake-alarm.wav"
-  -p, --pager PAGER [PAGER ...]
-                        enable audible alarm (defaults to terminal bell) for desired pager, valid pagers are ('red', 'orange', 'yellow', 'green')
+  -f, --follow          enable follow mode like tail, (default: False)
+  -g, --geo-link        enable geo: link column, (default: False)
   -m, --magnitude MAGNITUDE
                         enable audible alarm (defaults to terminal bell) for specified magnitude threshold, value >= mag will trigger the alarm
-  -f, --follow          enable follow mode like tail, (default: False)
-  -g, --geo-link        enable geo:// link column, (default: False)
   -l, --localtime       display timestamps in local timezone, (default: True)
+  -p, --pager PAGER [PAGER ...]
+                        enable audible alarm (defaults to terminal bell) for desired pager, valid pagers are ('red', 'orange', 'yellow', 'green')
+  -n, --no-usgs-link    enable the More Info column displaying USGS link, (default: True)
+  -s, --usgs-short-link
+                        display only the USGS eventpage ID instead of the entire link, (default: False)
   -r, --refresh REFRESH
-                        set the API request refresh rate in optional time unit, omitted unit presumes "s" (seconds); minimum 60s, maximum 24h (default: 60s)
+                        set the API request refresh rate in optional time unit, omitted unit presumes "s" (seconds); minimum 1m, maximum 24h (default: 5m)
   -ro, --run-once       disable watch and run a single loop (default: False)
-  -t, --timeout TIMEOUT
-                        set the API request timeout value in seconds, minimum 10 (default: 10)
-  --time-format TIME_FORMAT
+  -t, --time-format TIME_FORMAT
                         set an strptime compatible string to customize the time format (default: %Y-%m-%d %H:%M:%S)
   --color, --no-color   control color output (default: True)
-  --version             show program's version number and exit
+  --api-timeout API_TIMEOUT
+                        set the API request timeout value in seconds, minimum 10 (default: 10)
   --accept-warning      accept/suppress all warning prompts (default: False)
-  -h45, --hour45        show earthquakes >= M4.5 of the last hour
-  -h25, --hour25        show earthquakes >= M2.5 of the last hour
-  -h10, --hour10        show earthquakes >= M1.0 of the last hour
-  -hs, --hour           show significant earthquakes of the hour
-  -ha, --hour-all       show all earthquakes of the last hour
-  -d45, --day45         show earthquakes >= M4.5 of the last day
-  -d25, --day25         show earthquakes >= M2.5 of the last day
-  -d10, --day10         show earthquakes >= M1.0 of the last day
-  -ds, --day            show significant earthquakes of the day
-  -da, --day-all        show all earthquakes of the last day
-  -w45, --week45        show earthquakes >= M4.5 of the last week
-  -w25, --week25        show earthquakes >= M2.5 of the last week
-  -w10, --week10        show earthquakes >= M1.0 of the last week
-  -ws, --week           show significant earthquakes of the week
-  -wa, --week-all       show all earthquakes of the last week
-  -m45, --month45       show earthquakes >= M4.5 of the last month
-  -m25, --month25       show earthquakes >= M2.5 of the last month
-  -m10, --month10       show earthquakes >= M1.0 of the last month
-  -ms, --month          show significant earthquakes of the month
-  -ma, --month-all      show all earthquakes of the last month
+  --version             show program's version number and exit
+  -h45, --hour45        show earthquakes >= M4.5 for the last hour
+  -h25, --hour25        show earthquakes >= M2.5 for the last hour
+  -h10, --hour10        show earthquakes >= M1.0 for the last hour
+  -hs, --hour           show significant earthquakes for the hour
+  -ha, --hour-all       show all earthquakes for the last hour
+  -d45, --day45         show earthquakes >= M4.5 for the last day
+  -d25, --day25         show earthquakes >= M2.5 for the last day
+  -d10, --day10         show earthquakes >= M1.0 for the last day
+  -ds, --day            show significant earthquakes for the day
+  -da, --day-all        show all earthquakes for the last day
+  -w45, --week45        show earthquakes >= M4.5 for the last week
+  -w25, --week25        show earthquakes >= M2.5 for the last week
+  -w10, --week10        show earthquakes >= M1.0 for the last week
+  -ws, --week           show significant earthquakes for the week
+  -wa, --week-all       show all earthquakes for the last week
+  -m45, --month45       show earthquakes >= M4.5 for the last month
+  -m25, --month25       show earthquakes >= M2.5 for the last month
+  -m10, --month10       show earthquakes >= M1.0 for the last month
+  -ms, --month          show significant earthquakes for the month
+  -ma, --month-all      show all earthquakes for the last month
 ```
 
 </details>
