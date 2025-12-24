@@ -1,6 +1,6 @@
 [project]
 name = "usgs-quakemon"
-version = "1.0.2"
+version = "1.0.3"
 authors = [
   { name="Ryan Steed", email="ryan.steed.usa@pm.me" },
   { name="baraclese", email="1628879+baraclese@users.noreply.github.com" },

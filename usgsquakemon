@@ -14,15 +14,20 @@ national           -> orange,
 international      -> red
 """
 
+# native imports
 import argparse
 from dataclasses import dataclass
 import errno
 import os
+from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+
+# third party imports
 import requests
 from tabulate import tabulate
 
@@ -30,7 +35,7 @@ from tabulate import tabulate
 tabulate.WIDE_CHARS_MODE = False
 
 # constants
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 DESCRIPTION = """
 Monitor recent earthquakes reported by USGS at https://earthquake.usgs.gov.
 If no arguments are specified, the significant earthquakes for the day (--day)
@@ -82,25 +87,31 @@ UNITS = ("hour", "day", "week", "month")
 @dataclass
 # this is a basic script, we can tolerate a few too many attributes
 # pylint: disable=too-many-instance-attributes
-class QwState:
+class GlobalState:
     """use class to store global states"""
 
-    alarm: list
-    pageralerts: list
     progname: str
-    alerted: bool = False
-    apitimeout: int = DEFAULT_TIMEOUT
     acceptwarn: bool = False
+    alerted: bool = False
     enablecolor: bool = True
     eventbase: str = ""
     geolink: bool = False
-    magalert: float = 666.666
     localtime: bool = True
-    refresh: int = DEFAULT_REFRESH
     runonce: bool = False
-    timeformat: str = DEFAULT_TIME_FORMAT
     usgslink: bool = True
     shortlink: bool = False
+
+
+@dataclass
+class GlobalConfig:
+    """use class to store global config"""
+
+    alarm: list
+    pageralerts: list
+    apitimeout: int = DEFAULT_TIMEOUT
+    magalert: float = 666.666
+    refresh: int = DEFAULT_REFRESH
+    timeformat: str = DEFAULT_TIME_FORMAT
 
 
 # functions
@@ -111,12 +122,17 @@ def clear_screen():
             subprocess.run("cls", shell=True, check=True)
         else:
             subprocess.run(["clear"], check=True)
-    # broad except is the intention here
-    # pylint: disable=broad-exception-caught
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         # Fallback to ANSI escape
         sys.stdout.write("\033[H\033[J")
         handle_output("flush")
+
+
+def colorize_string(color: str, enablecolor: bool, string: str) -> str:
+    """conditionally colorize a string"""
+    if enablecolor:
+        return f"{QUAKECOLORS[color]}{string}{QUAKECOLORS['reset']}"
+    return string
 
 
 def confirmation_prompt(prompt: str) -> bool:
@@ -129,24 +145,24 @@ def confirmation_prompt(prompt: str) -> bool:
     return response in ["y", "yes"]
 
 
-def convert_magnitude(magnitude: float, magstr: str) -> str:
+def convert_magnitude(magnitude: float, magstr: str, enablecolor: bool) -> str:
     """convert magnitude into desired printable strings"""
     if magnitude >= 8.5:
-        result = f"{get_color('mag8')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag8", enablecolor, magstr)
     elif magnitude >= 7.5:
-        result = f"{get_color('mag7')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag7", enablecolor, magstr)
     elif magnitude >= 6.5:
-        result = f"{get_color('mag6')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag6", enablecolor, magstr)
     elif magnitude >= 5.5:
-        result = f"{get_color('mag5')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag5", enablecolor, magstr)
     elif magnitude >= 4.5:
-        result = f"{get_color('mag4')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag4", enablecolor, magstr)
     elif magnitude >= 3.5:
-        result = f"{get_color('mag3')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag3", enablecolor, magstr)
     elif magnitude >= 2.5:
-        result = f"{get_color('mag2')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag2", enablecolor, magstr)
     elif magnitude >= 1.5:
-        result = f"{get_color('mag1')}{magstr}{get_color('reset')}"
+        result = colorize_string("mag1", enablecolor, magstr)
     else:
         result = magstr
     return result
@@ -169,70 +185,59 @@ def convert_seconds_to_human_readable(seconds: int) -> str:
     return " ".join(parts)
 
 
-def get_color(color: str) -> str:
-    """conditionally returns an earthquake color"""
-    if QwState.enablecolor:
-        return QUAKECOLORS[color]
-    return ""
-
-
-def get_earthquake(feature: dict) -> list:
+def get_earthquake(
+    feature: dict, state: GlobalState, config: GlobalConfig
+) -> list:
     """returns a list of properties for one earthquake"""
     properties = feature["properties"]
 
     # time is given in milliseconds since epoch
     utctime = datetime.fromtimestamp(properties["time"] / 1000, timezone.utc)
     localtime = utctime.astimezone()
-    timestamp = localtime if QwState.localtime else utctime
+    timestamp = localtime if state.localtime else utctime
 
     # colorize magnitude
-    magnitude = properties["mag"]
-    magstr = f"{magnitude:0.1f}"
+    magnitude: float = properties["mag"]
 
     # send alarm based on magnitude
-    if magnitude >= QwState.magalert and QwState.alerted is False:
-        if len(QwState.alarm) >= 1:
-            run_custom_alarm()
+    if magnitude >= config.magalert and state.alerted is False:
+        if len(config.alarm) >= 1:
+            state.alerted = run_custom_alarm(state.progname, config.alarm)
         else:
             print("\a", end="")
-        QwState.alerted = True  # page only once per refresh
-
-    magnitudestr = convert_magnitude(magnitude, magstr)
+        state.alerted = True  # page only once per refresh
 
     # alert property is the PAGER status
     alertprop = properties["alert"]
     if isinstance(alertprop, str) and alertprop.lower() in PAGERS:
-        alert = f"{get_color(alertprop)}{alertprop.upper()}{get_color('reset')}"
-        if (
-            alertprop.lower() in QwState.pageralerts
-            and QwState.alerted is False
-        ):
-            if len(QwState.alarm) >= 1:
-                run_custom_alarm()
+        alert = colorize_string(alertprop, state.enablecolor, alertprop.upper())
+        if alertprop.lower() in config.pageralerts and state.alerted is False:
+            if len(config.alarm) >= 1:
+                state.alerted = run_custom_alarm(state.progname, config.alarm)
             else:
                 print("\a", end="")
-            QwState.alerted = True
+            state.alerted = True
     else:
         alert = "-"
 
     results = [
-        timestamp.strftime(QwState.timeformat),
-        magnitudestr,
+        timestamp.strftime(config.timeformat),
+        convert_magnitude(magnitude, f"{magnitude:.1f}", state.enablecolor),
         properties["place"],
         alert,
     ]
 
     [eventbase, eventid] = str(properties["url"]).rsplit("/", maxsplit=1)
     eventurl = f"{eventbase}{eventid}"
-    QwState.eventbase = eventbase
+    state.eventbase = eventbase
 
-    if QwState.shortlink:
+    if state.shortlink:
         eventurl = eventid
 
-    if QwState.usgslink:
+    if state.usgslink:
         results.append(eventurl)
 
-    if QwState.geolink:
+    if state.geolink:
         coordinates = feature["geometry"]["coordinates"]
         results.append(
             f"geo:{coordinates[1]},{coordinates[0]},{coordinates[2]}"
@@ -241,23 +246,41 @@ def get_earthquake(feature: dict) -> list:
     return results
 
 
+def get_request(
+    progname: str, url: str, timeout: int
+) -> requests.models.Response:
+    """get request with retry"""
+    result = None
+    for attempt in range(3):
+        try:
+            result = requests.get(url, timeout=timeout)
+            result.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt == 2:
+                print(f"{progname}: error: {e}", file=sys.stderr)
+                sys.exit(1)
+            time.sleep(2**attempt)
+    return result
+
+
 def get_sites() -> str:
-    # available API endpoints
-    """generate site URLs"""
-    # URLs
-    url = {}
-    for unit in UNITS:
-        for mag in MAGS:
-            url[f"{unit}{mag}"] = (
-                # pylint: disable=line-too-long
-                f"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/{mag / 10}_{unit}.geojson"
-            )
-        url[f"all_{unit}"] = (
-            f"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_{unit}.geojson"
-        )
-        url[f"significant_{unit}"] = (
-            f"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_{unit}.geojson"
-        )
+    """generate API site URLs"""
+    base_url = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary"
+    url = {
+        f"{unit}{mag}": f"{base_url}/{mag / 10}_{unit}.geojson"
+        for unit in UNITS
+        for mag in MAGS
+    }
+    url.update(
+        {f"all_{unit}": f"{base_url}/all_{unit}.geojson" for unit in UNITS}
+    )
+    url.update(
+        {
+            f"significant_{unit}": f"{base_url}/significant_{unit}.geojson"
+            for unit in UNITS
+        }
+    )
     return url
 
 
@@ -274,13 +297,13 @@ def handle_output(operation: str = "flush") -> bool:
             sys.stdout.reconfigure(line_buffering=True)
             sys.stderr.reconfigure(line_buffering=True)
         return True
-    # broad except is the intention here
-    # pylint: disable=broad-exception-caught
-    except Exception:
+    except (OSError, AttributeError):
         return False
 
 
-def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
+def init_args(
+    parser: argparse.ArgumentParser, state: GlobalState
+) -> argparse.Namespace:
     """initialize arguments"""
     parser.add_argument(
         "-a",
@@ -298,7 +321,7 @@ def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     parser.add_argument(
         "-g",
         "--geo-link",
-        help="enable geo: link column, (default: False)",
+        help=f"enable geo: link column, (default: {state.geolink})",
         action="store_true",
     )
     parser.add_argument(
@@ -311,8 +334,7 @@ def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     parser.add_argument(
         "-l",
         "--localtime",
-        help=f"display timestamps in local timezone, (default:\
-            {QwState.localtime})",
+        help=f"display timestamps in local timezone, (default: {state.localtime})",
         action="store_true",
     )
     parser.add_argument(
@@ -326,13 +348,14 @@ def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     parser.add_argument(
         "-n",
         "--no-usgs-link",
-        help="enable the More Info column displaying USGS link, (default: True)",
+        help=f"disable the More Info column displaying USGS link, (default: {not state.usgslink})",
         action="store_true",
     )
     parser.add_argument(
         "-s",
         "--usgs-short-link",
-        help="display only the USGS eventpage ID instead of the entire link, (default: False)",
+        help=f"display only the USGS eventpage ID instead of the entire link, (default:\
+            {state.shortlink})",
         action="store_true",
     )
     parser.add_argument(
@@ -347,9 +370,9 @@ def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     parser.add_argument(
         "-ro",
         "--run-once",
-        help="disable watch and run a single loop (default: False)",
+        help=f"disable watch and run a single loop (default: {state.runonce})",
         action="store_true",
-        default=False,
+        default=state.runonce,
     )
     parser.add_argument(
         "-t",
@@ -360,7 +383,7 @@ def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     )
     parser.add_argument(
         "--color",
-        help=f"control color output (default: {QwState.enablecolor})",
+        help=f"control color output (default: {state.enablecolor})",
         type=bool,
         action=argparse.BooleanOptionalAction,
     )
@@ -373,9 +396,9 @@ def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     )
     parser.add_argument(
         "--accept-warning",
-        help="accept/suppress all warning prompts (default: False)",
+        help=f"accept/suppress all warning prompts (default: {state.acceptwarn})",
         action="store_true",
-        default=False,
+        default=state.acceptwarn,
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {VERSION}"
@@ -405,22 +428,40 @@ def init_args(parser: argparse.ArgumentParser) -> argparse.Namespace:
     return parser.parse_args()
 
 
-def print_table(url: str, follow: bool):
-    """prints the table of all earthquakes"""
-    try:
-        req = requests.get(url, timeout=QwState.apitimeout)
-    except requests.exceptions.RequestException as e:
-        print(f"{QwState.progname}: error: {e}", file=sys.stderr)
-        sys.exit(1)
+def is_executable(file):
+    """check if a file exists and is executable"""
+    path = Path(file)
 
+    # handle relative or absolute
+    if (
+        path.is_absolute()
+        or file.startswith(("./", "../", ".\\", "..\\"))
+        or os.path.sep in file
+        or (os.path.altsep and os.path.altsep in file)
+    ):
+        # handle symlinks
+        followed = path.resolve()
+        return followed.is_file() and os.access(followed, os.X_OK)
+
+    # handle name only
+    return shutil.which(path) is not None
+
+
+def print_table(
+    url: str, follow: bool, state: GlobalState, config: GlobalConfig
+):
+    """prints the table of all earthquakes"""
+    req = get_request(state.progname, url, config.apitimeout)
     earthquakes = req.json()
     currenttime = (
-        datetime.now() if QwState.localtime else datetime.now(timezone.utc)
+        datetime.now() if state.localtime else datetime.now(timezone.utc)
     )
-    quakelist = list(map(get_earthquake, earthquakes["features"]))
+    quakelist = [
+        get_earthquake(f, state, config) for f in earthquakes["features"]
+    ]
     tz_name = (
         str(time.localtime().tm_zone)
-        if QwState.localtime
+        if state.localtime
         else str(currenttime.tzinfo)
     )
     quakeheaders = [
@@ -430,15 +471,15 @@ def print_table(url: str, follow: bool):
         "PAGER",
     ]
 
-    if QwState.usgslink:
+    if state.usgslink:
         quakeheaders.append("More info")
 
-    if QwState.geolink:
+    if state.geolink:
         quakeheaders.append("Geo link")
 
     events_found = len(quakelist)
 
-    if events_found >= RESULT_WARNING_THRESHOLD and not QwState.acceptwarn:
+    if events_found >= RESULT_WARNING_THRESHOLD and not state.acceptwarn:
         if confirmation_prompt(
             f"""Warning, {events_found} is greater than {RESULT_WARNING_THRESHOLD}.
 
@@ -447,7 +488,7 @@ Choosing yes here will suppress subsequent warnings.
 
 Continue?"""
         ):
-            QwState.acceptwarn = True
+            state.acceptwarn = True
             print("Continuing...")
         else:
             print("Aborting...")
@@ -457,19 +498,19 @@ Continue?"""
         clear_screen()
 
     refreshstr = ""
-    if not QwState.runonce:
-        refreshstr = f", refreshing every {convert_seconds_to_human_readable(QwState.refresh)}"
+    if not state.runonce:
+        refreshstr = f", refreshing every {convert_seconds_to_human_readable(config.refresh)}"
 
     print(f"{earthquakes['metadata']['title']}{refreshstr}")
     print(
-        f"Current Time ({tz_name}): {currenttime.strftime(QwState.timeformat)}"
+        f"Current Time ({tz_name}): {currenttime.strftime(config.timeformat)}"
     )
-    if QwState.shortlink and QwState.eventbase != "":
-        print(f"Event base URL: {QwState.eventbase}/")
+    if state.shortlink and state.eventbase != "":
+        print(f"Event base URL: {state.eventbase}/")
     print(f"Events found: {events_found}")
 
     if not follow:
-        print(tabulate(quakelist, headers=quakeheaders))
+        print(tabulate(quakelist, headers=quakeheaders, floatfmt=".1f"))
     else:
         print(" | ".join(quakeheaders))
         for x in quakelist:
@@ -518,23 +559,32 @@ def parse_arg_to_seconds(arg: str) -> int:
     return result
 
 
-def process_args(args: argparse.Namespace):
+def process_args(
+    args: argparse.Namespace, state: GlobalState, config: GlobalConfig
+):
     # we only process args once...
     # pylint: disable=too-many-branches
     """process arguments"""
     if isinstance(args.alarm, str):
         if args.alarm != "":
             try:
-                QwState.alarm = shlex.split(args.alarm)
+                config.alarm = shlex.split(args.alarm)
             except ValueError as e:
                 print(
-                    f"{QwState.progname}: error parsing argument -a/--alarm command: {e}",
+                    f"{state.progname}: error parsing argument -a/--alarm command: {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            if not is_executable(config.alarm[0]):
+                print(
+                    f"{state.progname}: alarm error: command not found or is not\
+ executable: {config.alarm[0]}",
                     file=sys.stderr,
                 )
                 sys.exit(1)
         else:
             print(
-                f"{QwState.progname}: error: argument -a/--alarm requires an input string",
+                f"{state.progname}: error: argument -a/--alarm requires an input string",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -542,52 +592,52 @@ def process_args(args: argparse.Namespace):
         for pager in args.pager:
             if pager not in PAGERS:
                 print(
-                    f'{QwState.progname}: error: argument -p/--pager: requires input of {PAGERS}\
- not: "{pager}"',
+                    f'{state.progname}: error: argument -p/--pager: requires input of\
+ {PAGERS} not: "{pager}"',
                     file=sys.stderr,
                 )
                 sys.exit(1)
-        QwState.pageralerts = args.pager
+        config.pageralerts = args.pager
     if args.refresh:
         if args.run_once:
             print(
-                f"{QwState.progname}: error: arguments -r/--refresh and -ro/--run-once cannot be\
- used simultaneously",
+                f"{state.progname}: error: arguments -r/--refresh and -ro/--run-once cannot\
+ be used simultaneously",
                 file=sys.stderr,
             )
             sys.exit(1)
         try:
             refresh = parse_arg_to_seconds(args.refresh)
-            QwState.refresh = refresh
+            config.refresh = refresh
         except ValueError as e:
             print(
-                f"{QwState.progname}: error: argument -r/--refresh: {e}",
+                f"{state.progname}: error: argument -r/--refresh: {e}",
                 file=sys.stderr,
             )
             sys.exit(1)
     if args.api_timeout:
-        if args.api_timeout[0] > QwState.apitimeout:
-            QwState.apitimeout = args.api_timeout[0]
-        elif not args.api_timeout[0] == QwState.apitimeout:
+        if args.api_timeout[0] > config.apitimeout:
+            config.apitimeout = args.api_timeout[0]
+        elif not args.api_timeout[0] == config.apitimeout:
             print(
-                f'{QwState.progname}: error: argument --api-timeout: requires minimum value\
+                f'{state.progname}: error: argument --api-timeout: requires minimum value\
  "{DEFAULT_TIMEOUT}" not: "{args.api_timeout[0]}"',
                 file=sys.stderr,
             )
             sys.exit(1)
     if args.time_format:
         if validate_time_format(args.time_format):
-            QwState.timeformat = args.time_format
+            config.timeformat = args.time_format
         else:
             print(
-                f'{QwState.progname}: error: argument -t/--time-format: requires strftime format\
- like "{DEFAULT_TIME_FORMAT}" not: "{args.time_format}"',
+                f'{state.progname}: error: argument -t/--time-format: requires strftime\
+ format like "{DEFAULT_TIME_FORMAT}" not: "{args.time_format}"',
                 file=sys.stderr,
             )
             sys.exit(1)
 
 
-def select_site(args: argparse.Namespace) -> str:
+def select_site(args: argparse.Namespace, state: GlobalState) -> str:
     """parse args to select a site"""
     urls = get_sites()
     site = urls["significant_day"]
@@ -597,7 +647,7 @@ def select_site(args: argparse.Namespace) -> str:
                 if (
                     (unit == "day" and mag == 10)
                     or unit in ("week", "month")
-                    and not QwState.acceptwarn
+                    and not state.acceptwarn
                 ):
                     # warn about results
                     if confirmation_prompt(
@@ -609,7 +659,7 @@ Choosing yes here will suppress subsequent warnings.
 
 Continue?"""
                     ):
-                        QwState.acceptwarn = True
+                        state.acceptwarn = True
                         print("Continuing...")
                     else:
                         print("Aborting...")
@@ -618,7 +668,7 @@ Continue?"""
         if getattr(args, f"{unit}", True):
             site = urls[f"significant_{unit}"]
         if getattr(args, f"{unit}_all", True):
-            if unit in ("day", "week", "month") and not QwState.acceptwarn:
+            if unit in ("day", "week", "month") and not state.acceptwarn:
                 # warn about results
                 if confirmation_prompt(
                     f"""Warning, all results for the {unit} can number in the hundreds.
@@ -628,7 +678,7 @@ Choosing yes here will suppress subsequent warnings.
 
 Continue?"""
                 ):
-                    QwState.acceptwarn = True
+                    state.acceptwarn = True
                     print("Continuing...")
                 else:
                     print("Aborting...")
@@ -637,44 +687,33 @@ Continue?"""
     return site
 
 
-def run_custom_alarm():
+def run_custom_alarm(progname: str, alarm: list) -> bool:
     """execute custom subprocess triggered by alerts"""
     try:
         # we want this to be non-blocking
         # pylint: disable=consider-using-with
-        subprocess.Popen(QwState.alarm)
+        subprocess.Popen(alarm, shell=False)
     except subprocess.TimeoutExpired:
         print(
-            f"{QwState.progname}: alarm error: command timed out",
+            f"{progname}: alarm error: command timed out",
             file=sys.stderr,
         )
-        sys.exit(1)
-    except FileNotFoundError:
-        print(
-            f"{QwState.progname}: alarm error: command not found: {QwState.alarm[0]}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    except PermissionError:
-        print(
-            f"{QwState.progname}: alarm error: permission denied executing command:\
- {QwState.alarm[0]}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        return False
     # broad except is the intention here
     # pylint: disable=broad-exception-caught
     except Exception as e:
         print(
-            f"{QwState.progname}: alarm error: command unexpected error: {e}",
+            f"{progname}: alarm error: command unexpected error: {e}",
             file=sys.stderr,
         )
-        sys.exit(1)
-    QwState.alerted = True
+        return False
+    return True
 
 
 def validate_time_format(timefmt: str) -> bool:
     """test a strptime string format"""
+    if "%" not in timefmt:
+        return False
     try:
         timestr = datetime.now().strftime(timefmt)
         datetime.strptime(timestr, timefmt)
@@ -686,7 +725,6 @@ def validate_time_format(timefmt: str) -> bool:
 def main():
     """main function to parse arguments and watch for earthquakes"""
     if not os.isatty(sys.stdout.fileno()):
-        QwState.enablecolor = False  # disable color by default for non-tty
         handle_output("line_buffer")  # pipe compatibility
 
     parser = argparse.ArgumentParser(
@@ -694,34 +732,42 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    QwState.progname = parser.prog
-    QwState.pageralerts = []
-    QwState.alarm = []
-    args = init_args(parser)
-    QwState.acceptwarn = args.accept_warning
-    site = select_site(args)
-    process_args(args)
+    state = GlobalState(
+        progname=parser.prog, enablecolor=os.isatty(sys.stdout.fileno())
+    )
+    config = GlobalConfig(
+        pageralerts=[],
+        alarm=[],
+        apitimeout=DEFAULT_TIMEOUT,
+        refresh=DEFAULT_REFRESH,
+        timeformat=DEFAULT_TIME_FORMAT,
+    )
+
+    args = init_args(parser, state)
+    state.acceptwarn = args.accept_warning
+    site = select_site(args, state)
+    process_args(args, state, config)
 
     if isinstance(args.color, bool):
-        QwState.enablecolor = args.color
-    QwState.geolink = args.geo_link
-    QwState.localtime = args.localtime
+        state.enablecolor = args.color
+    state.geolink = args.geo_link
+    state.localtime = args.localtime
     if args.no_usgs_link:
-        QwState.usgslink = False
-    QwState.shortlink = args.usgs_short_link
-    QwState.runonce = args.run_once
+        state.usgslink = False
+    state.shortlink = args.usgs_short_link
+    state.runonce = args.run_once
     if isinstance(args.magnitude, float):
-        QwState.magalert = args.magnitude
+        config.magalert = args.magnitude
 
     while True:
         try:
-            print_table(site, args.follow)
+            print_table(site, args.follow, state, config)
             if args.follow and not args.run_once:
                 print()
-            QwState.alerted = False
-            if args.run_once:
+            state.alerted = False
+            if state.runonce:
                 break
-            time.sleep(QwState.refresh)
+            time.sleep(config.refresh)
         except KeyboardInterrupt:
             handle_output("close")
             break
