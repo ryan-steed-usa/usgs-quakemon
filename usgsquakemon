@@ -35,7 +35,7 @@ from tabulate import tabulate
 tabulate.WIDE_CHARS_MODE = False
 
 # constants
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 DESCRIPTION = """
 Monitor recent earthquakes reported by USGS at https://earthquake.usgs.gov.
 If no arguments are specified, the significant earthquakes for the day (--day)
