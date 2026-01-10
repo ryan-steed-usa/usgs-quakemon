@@ -384,7 +384,6 @@ def init_args(
     parser.add_argument(
         "--color",
         help=f"control color output (default: {state.enablecolor})",
-        type=bool,
         action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
