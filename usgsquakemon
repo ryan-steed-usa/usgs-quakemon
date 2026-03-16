@@ -646,8 +646,7 @@ def select_site(args: argparse.Namespace, state: GlobalState) -> str:
                 if (
                     (unit == "day" and mag == 10)
                     or unit in ("week", "month")
-                    and not state.acceptwarn
-                ):
+                ) and not state.acceptwarn:
                     # warn about results
                     if confirmation_prompt(
                         f"""Warning, magnitude >= {mag} results for the {unit} can number in the\
